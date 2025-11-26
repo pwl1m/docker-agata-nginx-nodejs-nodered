@@ -1,0 +1,71 @@
+# docker-compose.yml
+services:
+  nginx:
+    build: ./nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - nodejs
+      - redis
+    networks:
+      - backend-network
+    restart: unless-stopped
+
+  nodejs:
+    build: ./nodejs
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./nodejs/logs:/app/logs:rw
+    networks:
+      - backend-network
+    restart: unless-stopped
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  node-red:
+    image: nodered/node-red:latest
+    ports:
+      - "1880:1880"
+    networks:
+      - backend-network
+    volumes:
+    - ./nodejs/logs:/data/logs:ro
+    - node-red-data:/data
+    restart: unless-stopped
+
+networks:
+  backend-network:
+    driver: bridge
+
+volumes:
+  logs:
+  redis-data:
+  node-red-data:
