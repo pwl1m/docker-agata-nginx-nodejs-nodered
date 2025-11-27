@@ -91,7 +91,7 @@ exports.ingest = async (req, res) => {
 
     // Logar os dados processados
     logger.logProcessedData(parsedPayload);
-    await fileLogger.saveAllDevicesData(serial, parsedPayload);
+    await fileLogger.saveFlatProcessedData(flatPayload);
     await fileLogger.logTextTransaction(parsedPayload, 'agata');
 
     stats.successful++;
