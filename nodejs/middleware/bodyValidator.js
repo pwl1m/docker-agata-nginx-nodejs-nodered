@@ -19,51 +19,6 @@ function validateAgataBody(req, res, next) {
     const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body);
     const bodyLength = rawBody.length;
 
-    // 1. Validar tamanho mínimo/máximo
-    if (bodyLength < 20) {
-      logger.warn('Body muito curto', { length: bodyLength, ip: req.ip });
-      return res.status(200).json({
-        code: 200,
-        config: -1,
-        error: 'body_too_short',
-        ts: new Date().toISOString()
-      });
-    }
-
-    if (bodyLength > 500000) {
-      logger.warn('Body muito grande', { length: bodyLength, ip: req.ip });
-      return res.status(200).json({
-        code: 200,
-        config: -1,
-        error: 'body_too_large',
-        ts: new Date().toISOString()
-      });
-    }
-
-    // 2. Detectar payload duplicado (múltiplos seriais)
-    const serialMatches = rawBody.match(/\d{6}[A-Za-z0-9+/=]{20,}/g);
-    if (serialMatches && serialMatches.length > 1) {
-      logger.warn('Payload duplicado detectado', {
-        count: serialMatches.length,
-        serials: serialMatches.map(m => m.substring(0, 6)),
-        ip: req.ip,
-        length: bodyLength
-      });
-
-      // Extrair apenas o primeiro payload válido
-      const firstValid = serialMatches[0];
-      const cleanedBody = rawBody.substring(rawBody.indexOf(firstValid));
-
-      logger.info('Payload sanitizado', {
-        original_length: bodyLength,
-        cleaned_length: cleanedBody.length,
-        ip: req.ip
-      });
-
-      req.body = Buffer.from(cleanedBody, 'utf8');
-      req.sanitized = true;
-    }
-
     // 3. Detectar lixo no início (headers HTTP, chunks, etc)
     const garbagePattern = /^[^0-9A-Za-z+/=]{1,50}/;
     const garbageMatch = rawBody.match(garbagePattern);
@@ -107,19 +62,7 @@ function validateAgataBody(req, res, next) {
         ts: new Date().toISOString()
       });
     }
-
-    // 5. Log detalhado para debug (se necessário)
-    if (process.env.DEBUG === 'true') {
-      logger.debug('Body validado', {
-        length: req.body.length,
-        sanitized: req.sanitized || false,
-        format: startsWithSerial ? 'encrypted' : 'json',
-        sample: req.body.toString().substring(0, 80),
-        ip: req.ip,
-        request_id: req.headers['x-request-id']
-      });
-    }
-
+    
     next();
 
   } catch (error) {
@@ -138,28 +81,4 @@ function validateAgataBody(req, res, next) {
   }
 }
 
-/**
- * Middleware para sanitizar payloads do Agata
- * Remove duplicatas e lixo do payload
- */
-function sanitizePayload(req, res, next) {
-  try {
-    const rawBody = req.body.raw || req.body;
-
-    // Remover duplicatas
-    const serialMatches = rawBody.match(/\d{6}[A-Za-z0-9+/=]{20,}/g);
-    if (serialMatches && serialMatches.length > 1) {
-      req.body.raw = serialMatches[0]; // Manter apenas o primeiro payload válido
-    }
-
-    // Remover lixo do início
-    req.body.raw = req.body.raw.replace(/^[^0-9A-Za-z+/=]+/, '');
-
-    next();
-  } catch (error) {
-    console.error('Erro ao sanitizar payload:', error.message);
-    return res.status(400).json({ error: 'Erro ao sanitizar payload' });
-  }
-}
-
-module.exports = { validateAgataBody, sanitizePayload };
+module.exports = { validateAgataBody };
