@@ -82,20 +82,16 @@ class WebSocketManager {
     }
 
     // Envia atualização para todos (e para sala específica do device, se houver)
-    broadcast(update) {
-        if (!this.io) return;
-        const { serial } = update || {};
-        if (serial) this.io.to(`device:${serial}`).emit('device_update', update);
-        this.io.emit('device_update', update);
-    }
-
-    // Enviar atualização diretamente (sem Redis)
-    emit(event, data) {
+    emit(event = 'device_update', data, room = null) {
         if (!this.initialized) {
             logger.warn('WebSocket: Tentativa de emit antes de inicializar');
             return;
         }
-        this.io.emit(event, data);
+        if (room) {
+            this.io.to(room).emit(event, data);
+        } else {
+            this.io.emit(event, data);
+        }
     }
 
     // Status

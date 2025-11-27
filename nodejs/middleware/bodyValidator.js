@@ -16,41 +16,38 @@ function validateAgataBody(req, res, next) {
       });
     }
 
-    const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body);
-    const bodyLength = rawBody.length;
+    let rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body);
+    const originalLength = rawBody.length;
 
-    // 3. Detectar lixo no início (headers HTTP, chunks, etc)
-    const garbagePattern = /^[^0-9A-Za-z+/=]{1,50}/;
-    const garbageMatch = rawBody.match(garbagePattern);
+    // 1. Detectar e extrair payload válido (6 dígitos + base64)
+    const validPayloadPattern = /(\d{6}[A-Za-z0-9+/=]+)/;
+    const match = rawBody.match(validPayloadPattern);
 
-    if (garbageMatch) {
-      logger.warn('Lixo detectado no início do payload', {
-        garbage: garbageMatch[0],
-        garbage_length: garbageMatch[0].length,
-        ip: req.ip
-      });
-
-      // Remover lixo do início
-      const cleanedBody = rawBody.replace(garbagePattern, '');
-
-      logger.info('Lixo removido do payload', {
-        original_length: bodyLength,
-        cleaned_length: cleanedBody.length,
-        ip: req.ip
-      });
-
-      req.body = Buffer.from(cleanedBody, 'utf8');
-      req.sanitized = true;
+    if (match) {
+      const cleanedBody = match[1];
+      
+      if (cleanedBody.length !== originalLength) {
+        logger.warn('Payload duplicado/corrompido detectado e limpo', {
+          original_length: originalLength,
+          cleaned_length: cleanedBody.length,
+          removed: originalLength - cleanedBody.length,
+          ip: req.ip
+        });
+        
+        rawBody = cleanedBody;
+        req.body = Buffer.from(cleanedBody, 'utf8');
+        req.sanitized = true;
+      }
     }
 
-    // 4. Validar formato: deve começar com 6 dígitos ou ser JSON
+    // 2. Validar formato: deve começar com 6 dígitos ou ser JSON
     const startsWithSerial = /^\d{6}/.test(rawBody);
     const isJSON = rawBody.trim().startsWith('{') || rawBody.trim().startsWith('[');
 
     if (!startsWithSerial && !isJSON) {
-      logger.error('Formato inválido', {
+      logger.error('Formato inválido após limpeza', {
         sample: rawBody.substring(0, 100),
-        length: bodyLength,
+        length: rawBody.length,
         ip: req.ip
       });
 

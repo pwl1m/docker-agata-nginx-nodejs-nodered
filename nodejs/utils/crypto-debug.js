@@ -21,7 +21,7 @@ class AgataCryptoDebug {
       let decrypted = decipher.update(chiperRaw, null, 'utf8');
       decrypted += decipher.final('utf8');
 
-      console.log('✅ SUCCESS! Decrypted:', decrypted);
+      console.log('SUCCESS! Decrypted:', decrypted);
       return decrypted;
     } catch (e) {
       console.log('❌ Failed:', e.message);
