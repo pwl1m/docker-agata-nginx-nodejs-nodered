@@ -1,7 +1,7 @@
 const logger = require('../utils/logger');
 
 /**
- * Middleware para validar e sanitizar body raw do Agata
+ * validar e sanitizar body raw do Agata
  * Detecta e corrige payloads malformados/duplicados
  */
 function validateAgataBody(req, res, next) {
@@ -25,7 +25,7 @@ function validateAgataBody(req, res, next) {
 
     if (match) {
       const cleanedBody = match[1];
-      
+
       if (cleanedBody.length !== originalLength) {
         logger.warn('Payload duplicado/corrompido detectado e limpo', {
           original_length: originalLength,
@@ -33,7 +33,7 @@ function validateAgataBody(req, res, next) {
           removed: originalLength - cleanedBody.length,
           ip: req.ip
         });
-        
+
         rawBody = cleanedBody;
         req.body = Buffer.from(cleanedBody, 'utf8');
         req.sanitized = true;
@@ -59,7 +59,7 @@ function validateAgataBody(req, res, next) {
         ts: new Date().toISOString()
       });
     }
-    
+
     next();
 
   } catch (error) {

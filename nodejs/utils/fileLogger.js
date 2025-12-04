@@ -11,7 +11,7 @@ class FileLogger {
         this.writeQueue = [];
         this.writing = false;
         this.DEBUG = process.env.DEBUG === 'true';
-        this.maxRecordsPerDevice = 1000; // Limite de registros por device
+        this.maxRecordsPerDevice = 1000; // Limite de registros por device    
     }
 
     log(...args) {
@@ -32,7 +32,7 @@ class FileLogger {
                 text: this.textLogsDir
             });
         } catch (error) {
-            console.error('Erro ao criar diretórios de logs:', error);
+            console.error('Erro ao criar diretórios de logs:', error);        
         }
     }
 
@@ -65,8 +65,8 @@ class FileLogger {
             try {
                 await this.ensureLogDirectories();
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const filename = `${filenamePrefix}-${timestamp}.json`;
-                const filepath = path.join(this.rawDataDir, filename);
+                const filename = `${filenamePrefix}-${timestamp}.json`;       
+                const filepath = path.join(this.rawDataDir, filename);        
 
                 const logEntry = {
                     timestamp: new Date().toISOString(),
@@ -77,7 +77,7 @@ class FileLogger {
                 this.log(`Raw data salvo: ${filename}`);
                 return filepath;
             } catch (error) {
-                console.error('Erro ao salvar raw data:', error.message);
+                console.error('Erro ao salvar raw data:', error.message);     
                 return null;
             }
         });
@@ -89,7 +89,7 @@ class FileLogger {
                 await this.ensureLogDirectories();
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
                 const filename = `agata-decrypted-${timestamp}.json`;
-                const filepath = path.join(this.rawDataDir, filename);
+                const filepath = path.join(this.rawDataDir, filename);        
 
                 const logEntry = {
                     timestamp: new Date().toISOString(),
@@ -114,18 +114,25 @@ class FileLogger {
         return this.enqueue(async () => {
             try {
                 await this.ensureLogDirectories();
-                const date = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+                const date = new Date().toISOString().split('T')[0];
                 const filename = `${source}-transactions-${date}.log`;
                 const filepath = path.join(this.textLogsDir, filename);
 
+                // Adaptação para pegar os campos corretos
+                const sensitivities = data.sensitivities || data.monit || {};
+                const voltages = data.voltages || {};
+                const errors = data.errors || data.erros || {};
+                const events = data.events || data.event || {};
+                const audit = data.audit || {};
+
                 const logEntry = `
 Timestamp: ${new Date().toISOString()}
-Device Serial: ${data.srl || 'unknown'}
-Sensitivities: ${JSON.stringify(data.sensitivities || {})}
-Voltages: ${JSON.stringify(data.voltages || {})}
-Errors: ${JSON.stringify(data.errors || {})}
-Events: ${JSON.stringify(data.events || {})}
-Audit: ${JSON.stringify(data.audit || {})}
+Device Serial: ${data.srl || data.serial || 'unknown'}
+Sensitivities: ${JSON.stringify(sensitivities)}
+Voltages: ${JSON.stringify(voltages)}
+Errors: ${JSON.stringify(errors)}
+Events: ${JSON.stringify(events)}
+Audit: ${JSON.stringify(audit)}
 ---
 `;
                 await fs.appendFile(filepath, logEntry);
@@ -145,8 +152,8 @@ Audit: ${JSON.stringify(data.audit || {})}
             await fs.mkdir(dir, { recursive: true });
 
             const serial = normalizedData.serial || 'unknown';
-            const iso = new Date().toISOString().replace(/[:.]/g, '-');
-            const filename = `${filenamePrefix}-${serial}-${iso}.json`;
+            const iso = new Date().toISOString().replace(/[:.]/g, '-');       
+            const filename = `${filenamePrefix}-${serial}-${iso}.json`;       
             const filePath = path.join(dir, filename);
 
             await fs.writeFile(filePath, JSON.stringify(normalizedData, null, 2));

@@ -15,7 +15,7 @@ class WebSocketManager {
         this.io = new Server(httpServer, {
             path: '/ws',
             cors: {
-                origin: '*', // ← MUDAR em produção (especificar domínio do React)
+                origin: '*', // MUDAR em produção (especificar domínio do React)
                 methods: ['GET', 'POST']
             },
             transports: ['websocket', 'polling'],
@@ -26,7 +26,6 @@ class WebSocketManager {
         // Conectar ao Redis Pub/Sub
         this.setupRedisSubscription();
 
-        // Event handlers
         this.io.on('connection', (socket) => {
             const clientId = socket.id;
             const ip = socket.handshake.address;
@@ -81,17 +80,21 @@ class WebSocketManager {
         }
     }
 
-    // Envia atualização para todos (e para sala específica do device, se houver)
-    emit(event = 'device_update', data, room = null) {
+    // Envia atualização para todos
+    broadcast(update) {
+        if (!this.io) return;
+        const { serial } = update || {};
+        if (serial) this.io.to(`device:${serial}`).emit('device_update', update);
+        this.io.emit('device_update', update);
+    }
+
+    // Enviar atualização diretamente (sem Redis)
+    emit(event, data) {
         if (!this.initialized) {
             logger.warn('WebSocket: Tentativa de emit antes de inicializar');
             return;
         }
-        if (room) {
-            this.io.to(room).emit(event, data);
-        } else {
-            this.io.emit(event, data);
-        }
+        this.io.emit(event, data);
     }
 
     // Status

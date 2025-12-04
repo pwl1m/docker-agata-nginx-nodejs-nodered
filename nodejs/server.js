@@ -5,14 +5,13 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const path = require('path');
 const logger = require('./utils/logger');
-const agataRoutes = require('./routes/agata');
 const websocketManager = require('./utils/websocketManager');
 const redisClient = require('./utils/redisClient');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Servidor HTTP + inicialização WS depois do Redis
+// Servidor HTTP + inicialização WebScoket depois do Redis
 const server = require('http').createServer(app);
 
 redisClient.connect()
@@ -55,7 +54,7 @@ app.use((req, res, next) => {
 });
 
 // Rotas
-app.use('/', agataRoutes);
+app.use('/', require('./routes/agata'));
 
 app.get('/test', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'test-websocket.html'));
@@ -75,18 +74,17 @@ app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 // Handler de erro
 app.use((err, req, res, next) => {
-  logger.error('Unhandled error', { err: err.message });
+  logger.error('Erro não capturado', { err: err.message });
   res.status(500).json({ error: 'Internal error' });
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  logger.info(`🚀 Servidor rodando na porta ${PORT}`);
-  logger.info(`📡 Agata: POST http://localhost:${PORT}/agata`);
-  logger.info(`🔌 WebSocket: ws://localhost:${PORT}/ws`);
-  logger.info(`🧪 Teste UI: http://localhost:${PORT}/test`);
+  logger.info(`Servidor rodando na porta ${PORT}`);
+  logger.info(`Agata: POST http://localhost:${PORT}/agata`);
+  logger.info(`WebSocket: ws://localhost:${PORT}/ws`);
 });
 
-// Graceful shutdown
+// Garante que as conexões sejam fechadas de forma segura
 const shutdown = async (signal) => {
   logger.info(`Recebido sinal ${signal}, desligando...`);
   try { await redisClient.disconnect(); } catch {}

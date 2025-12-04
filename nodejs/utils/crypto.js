@@ -5,7 +5,7 @@ class AgataCrypto {
   static decrypt(key, ciphertext) {
     try {
       // Gerar chave igual ao PHP
-      const password = key.repeat(3).substring(0, 16); // Ajuste para AES-128
+      const password = key.repeat(3).substring(0, 16); // Ajuste para AES-128 
 
       console.log('Serial recebido:', key);
       console.log('Chave AES gerada:', password);
@@ -28,6 +28,20 @@ class AgataCrypto {
       return decrypted;
     } catch (error) {
       console.error('Erro na descriptografia:', error.message);
+      return null;
+    }
+  }
+
+  static encrypt(key, plaintext) {
+    try {
+      const password = key.repeat(3).substring(0, 16);
+      const cipher = crypto.createCipheriv('aes-128-ecb', password, null);    
+      cipher.setAutoPadding(true);
+      let encrypted = cipher.update(plaintext, 'utf8');
+      encrypted = Buffer.concat([encrypted, cipher.final()]);
+      return encrypted.toString('base64');
+    } catch (error) {
+      console.error('Erro na criptografia:', error.message);
       return null;
     }
   }
