@@ -24,37 +24,62 @@ redisClient.connect()
   });
 
 app.set('trust proxy', true);
-app.use(helmet({
-  contentSecurityPolicy: false // Desativar CSP para teste local (scripts inline)
-}));
-app.use(cors());
-app.use(morgan('combined'));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
 
+app.use(cors());
+
+app.use(morgan('combined'));
+
+// ✅ LOG ABSOLUTO - antes de qualquer middleware
 app.use((req, res, next) => {
-    if (req.headers['content-type'] === 'text/html') {
-        let data = '';
-        req.on('data', chunk => {
-            data += chunk;
-        });
-        req.on('end', () => {
-            console.log('Corpo bruto recebido:', data);
-            // Tenta processar o corpo como JSON ou salva como texto
-            try {
-                req.body = JSON.parse(data);
-            } catch (err) {
-                req.body = { raw: data }; // Salva o corpo bruto como texto
-            }
-            next();
-        });
-    } else {
-        next();
-    }
+  logger.info('🚨 REQUISIÇÃO RECEBIDA', {
+    method: req.method,
+    path: req.path,
+    url: req.url,
+    contentType: req.headers['content-type']
+  });
+  next();
 });
 
-// Rotas
-app.use('/', require('./routes/agata'));
+// ✅ Middleware condicional: RAW para /agata, JSON para o resto
+app.use((req, res, next) => {
+  if (req.method === 'POST' && /^\/agata\/?$/.test(req.path)) {
+    logger.info('📥 Iniciando leitura RAW do body');
+    // RAW para a rota do device
+    let data = '';
+    req.setEncoding('utf8');
+    
+    req.on('data', chunk => {
+      data += chunk;
+      logger.info('📦 Chunk recebido', { size: chunk.length, chunk: chunk.substring(0, 50) });
+    });
+    
+    req.on('end', () => {
+      req.rawBody = data;
+      req.body = data; // ✅ Também colocar em req.body para compatibilidade
+      logger.info('✅ Body completo recebido', { 
+        length: data.length, 
+        preview: data.substring(0, 100),
+        hasRawBody: !!req.rawBody,
+        hasBody: !!req.body
+      });
+      next();
+    });
+    
+    req.on('error', err => {
+      logger.error('❌ Erro ao ler corpo', { error: err.message });
+      if (!res.headersSent) {
+        res.status(400).json({ error: 'Bad request' });
+      }
+    });
+  } else {
+    // JSON para todas as outras rotas
+    express.json({ limit: '10mb' })(req, res, next);
+  }
+});
+
+// ✅ ROTAS DE COMANDO - agora sem conflito
+const agataRouter = require('./routes/agata');
+app.use('/', agataRouter);
 
 app.get('/test', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'test-websocket.html'));
@@ -64,7 +89,7 @@ app.get('/test', (req, res) => {
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
-    ws_clients: websocketManager.getStatus().connected, // Mostrar status WS
+    ws_clients: websocketManager.getStatus().connected,
     timestamp: new Date().toISOString()
   });
 });
@@ -92,7 +117,6 @@ const shutdown = async (signal) => {
     logger.info('HTTP server encerrado');
     process.exit(0);
   });
-  // Force exit se não fechar em 5s
   setTimeout(() => process.exit(1), 5000).unref();
 };
 ['SIGINT','SIGTERM'].forEach(sig => process.on(sig, () => shutdown(sig)));

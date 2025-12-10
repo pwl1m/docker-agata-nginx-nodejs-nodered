@@ -82,8 +82,25 @@ exports.ingest = async (req, res) => {
 
     // Logar os dados processados
     logger.logProcessedData(parsedPayload);
+    
+    // Salvar com detecção de mudanças
+    const saveResult = await fileLogger.saveWithChangeDetection(parsedPayload, 'agata');
+
+    if (saveResult && saveResult.hasChanges) {
+        logger.info('Dados com mudanças salvas', {
+            serial,
+            changedFields: saveResult.changedFields,
+            filepath: saveResult.filepath
+        });
+    } else if (saveResult) {
+        logger.info('Dados sem mudanças salvas (arquivo secundário)', {
+            serial,
+            filepath: saveResult.filepath
+        });
+    }
+
+    // Continue salvando também no formato plano se necessário
     await fileLogger.saveFlatProcessedData(flatPayload);
-    await fileLogger.logTextTransaction(parsedPayload, 'agata');
 
     stats.successful++;
     latestPayload = { serial, payload: parsedPayload };

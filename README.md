@@ -28,6 +28,16 @@ Recebe payload criptografado > descriptografa (AES-128-ECB) > salva os dados bru
 - `GET /health` — status do serviço.
 - `GET /ws` — WebSocket.
 
+# Endpoint	Método	Uso
+/agata                      POST  Recebe telemetria
+/agata/send-command         POST  Enfileira um comando para ser enviado ao próximo ciclo do device.
+/agata/queue/:serial        GET   Consulta se há comando pendente para um device específico.
+/agata/queue                GET   Lista todos os comandos pendentes para todos os devices.
+/agata/config/template	    GET	  Pegar estrutura padrão para formulário
+/agata/config/:serial	      POST	Enviar nova configuração
+/agata/changes/:serial	    GET	  Histórico de alterações
+
+
 ## Payload do Ágata Device
 O payload enviado pelo dispositivo Ágata padrão:
 

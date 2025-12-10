@@ -6,75 +6,40 @@ const logger = require('../utils/logger');
  */
 function validateAgataBody(req, res, next) {
   try {
-    if (!req.body || req.body.length === 0) {
-      logger.warn('Body vazio recebido', { ip: req.ip, headers: req.headers });
-      return res.status(200).json({
-        code: 200,
-        config: -1,
-        error: 'empty_body',
-        ts: new Date().toISOString()
-      });
+    const ct = req.headers['content-type'];
+    let rawBody;
+    if (Buffer.isBuffer(req.body)) rawBody = req.body.toString('utf8');
+    else if (typeof req.body === 'string') rawBody = req.body;
+    else rawBody = JSON.stringify(req.body || '');
+
+    // Log de diagnóstico: primeiros 200 chars
+    const sample = rawBody ? rawBody.substring(0, 200) : '';
+    const len = rawBody ? rawBody.length : 0;
+    const logger = require('../utils/logger');
+    logger.info('BodyValidator: corpo recebido', { contentType: ct, length: len, sample });
+
+    if (!rawBody || len === 0) {
+      return res.status(200).json({ code: 200, config: -1, error: 'empty_body' });
     }
 
-    let rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body);
-    const originalLength = rawBody.length;
-
-    // 1. Detectar e extrair payload válido (6 dígitos + base64)
-    const validPayloadPattern = /(\d{6}[A-Za-z0-9+/=]+)/;
-    const match = rawBody.match(validPayloadPattern);
-
+    const match = rawBody.match(/(\d{6}[A-Za-z0-9+/=]+)/);
     if (match) {
-      const cleanedBody = match[1];
-
-      if (cleanedBody.length !== originalLength) {
-        logger.warn('Payload duplicado/corrompido detectado e limpo', {
-          original_length: originalLength,
-          cleaned_length: cleanedBody.length,
-          removed: originalLength - cleanedBody.length,
-          ip: req.ip
-        });
-
-        rawBody = cleanedBody;
-        req.body = Buffer.from(cleanedBody, 'utf8');
-        req.sanitized = true;
-      }
+      req.body = match[1]; // passar como string pura
+      return next();
     }
 
-    // 2. Validar formato: deve começar com 6 dígitos ou ser JSON
-    const startsWithSerial = /^\d{6}/.test(rawBody);
-    const isJSON = rawBody.trim().startsWith('{') || rawBody.trim().startsWith('[');
-
-    if (!startsWithSerial && !isJSON) {
-      logger.error('Formato inválido após limpeza', {
-        sample: rawBody.substring(0, 100),
-        length: rawBody.length,
-        ip: req.ip
-      });
-
-      return res.status(200).json({
-        code: 200,
-        config: -1,
-        error: 'invalid_format',
-        hint: 'esperado: 6 dígitos + base64 ou JSON',
-        ts: new Date().toISOString()
-      });
+    // Se for JSON, deixa a rota tratar
+    const t = rawBody.trim();
+    if (t.startsWith('{') || t.startsWith('[')) {
+      try { req.body = JSON.parse(t); return next(); } catch {}
     }
-
-    next();
-
-  } catch (error) {
-    logger.error('Erro no middleware de validação', {
-      error: error.message,
-      stack: error.stack,
-      ip: req.ip
-    });
 
     return res.status(200).json({
-      code: 200,
-      config: -1,
-      error: 'validation_error',
-      ts: new Date().toISOString()
+      code: 200, config: -1, error: 'invalid_format',
+      hint: 'esperado: 6 dígitos + base64 ou JSON'
     });
+  } catch (error) {
+    return res.status(200).json({ code: 200, config: -1, error: 'validation_error' });
   }
 }
 
