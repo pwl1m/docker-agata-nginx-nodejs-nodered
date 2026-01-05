@@ -1,27 +1,22 @@
-# AGATA Ingestão (Docker Stack)
+# AGATA
 
 Recepção de telemetria do Dispositivo Agata com: 
         - Nginx (proxy); 
         - Node.js (API/WebSocket)
         - Redis (cache/pub-sub). 
 
-Recebe payload criptografado > descriptografa (AES-128-ECB) > salva os dados brutos e versão normalizada (plana) para integração com banco relacional.
+Recebe payload criptografado > descriptografa (AES-128-ECB) > salva os dados brutos e versão para integração com banco.
 
 ## Componentes
 - Nginx: proxy reverso.
-- Node.js (Express + Socket.IO): API `/agata`, broadcast de eventos.
+- Node.js (Express): API `/agata`.
 - Redis: cache/pub-sub.
-- Node-RED (opcional): prototipação da equipe da Engenharia da Onix.
+- Node-RED: prototipação da equipe da Engenharia da Onix.
 
 ## Fluxo de dados
 1) POST `/agata`: `"<serial:6><payload:base64>"`.
 2) Descriptografia em `utils/crypto.js` (AES-128-ECB) (padrão do device).
-3) Persistência:
-   - Bruto descriptografado: `nodejs/logs/raw-data/*.json`.
-   - Legado agregado: `nodejs/logs/processed/*.json`.
-   - Normalizado (plano): `nodejs/logs/processed-flat/*.json`.
-4) Normalização: `utils/agataParser.js` -> formato plano, adequado para MySQL.
-
+3) ...
 
 ## Rotas disponíveis
 - `POST /agata` — ingestão de telemetria e comandos.
@@ -95,6 +90,3 @@ nodejs/
   logs/
 node-red/
 ```
-
-## Integração
-- Dados planos em `processed-flat` com campos nomeados (sensibilidadeX, tensões, contadores, sinais, etc.) para persistência direta em MySQL.
