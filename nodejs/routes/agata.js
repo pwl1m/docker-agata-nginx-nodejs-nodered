@@ -40,6 +40,29 @@ router.post('/agata/send-command', async (req, res) => {
       dadosParaCriptografar = comando;
     }
 
+    // VALIDAR TIMESTAMP (índice 27 do array "alteracao")
+    if (Array.isArray(dadosParaCriptografar) && dadosParaCriptografar.length >= 28) {
+      try {
+        const providedTs = Number(dadosParaCriptografar[27]) || 0;
+        const last = await repository.getLastTelemetry(serial);
+        const lastTsRaw = last?.timestamp_device ?? last?.timestamp ?? null;
+        const lastEpoch = lastTsRaw ? Math.floor(new Date(lastTsRaw).getTime() / 1000) : null;
+
+        if (lastEpoch && providedTs <= lastEpoch) {
+          if (process.env.AGATA_REJECT_OLD_TIMESTAMP === 'true') {
+            logger.warn('❌ Comando rejeitado: timestamp anterior ao último do device', { serial, providedTs, lastEpoch });
+            return res.status(400).json({ error: 'Timestamp do comando anterior ao último enviado pelo device' });
+          } else {
+            const newTs = lastEpoch + 1;
+            dadosParaCriptografar[27] = newTs;
+            logger.info('ℹ️ Timestamp do comando ajustado automaticamente', { serial, old: providedTs, new: newTs });
+          }
+        }
+      } catch (tsErr) {
+        logger.error('Erro ao validar timestamp do comando', { serial, error: tsErr.message });
+      }
+    }
+    
     const comandoJson = JSON.stringify(dadosParaCriptografar);
     
     logger.info('🔐 Criptografando comando', {
@@ -274,24 +297,41 @@ router.post(/^\/agata\/?$/, async (req, res) => {
       await redisClient.del(redisKey);
       const comandoPendente = JSON.parse(comandoPendenteRaw);
       
-      const respostaCompacta = JSON.stringify(comandoPendente);
-      
-      logger.info('📤 Enviando comando do Redis para device', { 
-        serial, 
-        tamanho: respostaCompacta.length,
+      // Enviar SOMENTE o que o device espera:
+      // - se comandoPendente.data existe, enviar essa string (provável payload base64)
+      // - se for string, enviar direto
+      let deviceBody = '';
+      if (typeof comandoPendente === 'string') deviceBody = comandoPendente;
+      else if (comandoPendente.data) deviceBody = comandoPendente.data;
+      else deviceBody = '';
+
+      logger.info('📤 Enviando comando do Redis para device', {
+        serial,
+        bytes: Buffer.byteLength(deviceBody || ''),
         config: comandoPendente.config
       });
 
-      res.set('Content-Type', 'application/json');
-      return res.status(200).send(respostaCompacta);
+      if (!deviceBody) {
+        // Resposta vazia (seguro para o firmware)
+        res.set('Content-Length', '0');
+        res.set('Connection', 'close');
+        return res.status(200).end();
+      }
+      const len = Buffer.byteLength(deviceBody);
+      res.type('text/plain');
+      res.set('Content-Length', String(len));
+      res.set('Connection', 'close');
+      return res.status(200).send(deviceBody);
     }
 
     logger.debug('ℹ️ Sem comando pendente', { serial });
-    return res.status(200).json({ code: 200, config: 0, data: "" });
+    // Resposta vazia — firmware espera vazio quando nada há
+    return res.status(200).end();
 
   } catch (redisErr) {
     logger.error('❌ Erro ao verificar comando pendente', { serial, error: redisErr.message });
-    return res.status(200).json({ code: 200, config: 0, data: "" });
+    // Em caso de erro, também responder vazio (mais seguro para o device)
+    return res.status(200).end();
   }
 });
 

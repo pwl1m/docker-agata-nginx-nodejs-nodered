@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 const server = require('http').createServer(app);
 
 // CONFIGURAÇÃO DO MODO DEBUG
-const DEBUG_RAW_PAYLOAD = process.env.DEBUG_RAW_PAYLOAD === 'true' || true;
+const DEBUG_RAW_PAYLOAD = process.env.DEBUG_RAW_PAYLOAD === 'true';
 const RAW_INCOMING_DIR = path.join(__dirname, 'logs', 'raw-incoming');
 
 if (DEBUG_RAW_PAYLOAD) {
@@ -53,7 +53,9 @@ function saveRawIncoming(req, rawBody) {
     const filepath = path.join(RAW_INCOMING_DIR, filename);
     const logLine = JSON.stringify(debugData, null, 2) + '\n\n---END-OF-REQUEST---\n\n';
     
-    fs.appendFileSync(filepath, logLine);
+    fs.appendFile(filepath, logLine, (err) => {
+      if (err) console.error('❌ Erro ao gravar raw incoming (async):', err.message);
+    });
     
     console.log('═══════════════════════════════════════════════════════════');
     console.log(`🔍 [DEBUG RAW] ${timestamp}`);
@@ -119,7 +121,7 @@ app.use((req, res, next) => {
       logger.error('❌ Erro ao ler corpo', { error: err.message });
       saveRawIncoming(req, `[ERROR] ${err.message}`);
       if (!res.headersSent) {
-        res.status(200).json({ code: 400, config: 0, data: "" });
+        res.status(200).end();
       }
     });
   } else {
@@ -193,7 +195,12 @@ app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 // Handler de erro
 app.use((err, req, res, next) => {
   logger.error('Erro não capturado', { err: err.message, stack: err.stack, path: req.path });
-  res.status(200).json({ code: 200, config: 0, data: "" });
+  if (!res.headersSent) {
+    res.set('Content-Length', '0');
+    res.set('Connection', 'close');
+    return res.status(200).end();
+  }
+  logger.warn('Resposta já enviada — não enviando resposta de erro duplicada', { path: req.path });
 });
 
 // INICIAR SERVER

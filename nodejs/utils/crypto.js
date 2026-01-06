@@ -7,13 +7,17 @@ class AgataCrypto {
       // Gerar chave igual ao PHP
       const password = key.repeat(3).substring(0, 16); // Ajuste para AES-128 
 
-      console.log('Serial recebido:', key);
-      console.log('Chave AES gerada:', password);
-      console.log('Tamanho da chave:', password.length);
+      if (process.env.DEBUG_CRYPTO === 'true') {
+        console.log('Serial recebido:', key);
+        console.log('Chave AES gerada:', password);
+        console.log('Tamanho da chave:', password.length);
+      }
 
       // Decodificar base64
       const chiperRaw = Buffer.from(ciphertext, 'base64');
-      console.log('Dados decodificados (base64 -> raw), tamanho:', chiperRaw.length);
+      if (process.env.DEBUG_CRYPTO === 'true') {
+        console.log('Dados decodificados (base64 -> raw), tamanho:', chiperRaw.length);
+      }
 
       // Descriptografar com AES-128-ECB
       const decipher = crypto.createDecipheriv('aes-128-ecb', password, null);
@@ -22,8 +26,10 @@ class AgataCrypto {
       let decrypted = decipher.update(chiperRaw, null, 'utf8');
       decrypted += decipher.final('utf8');
 
-      console.log('Descriptografia bem-sucedida!');
-      console.log('Dados descriptografados:', decrypted);
+      if (process.env.DEBUG_CRYPTO === 'true') {
+        console.log('Descriptografia bem-sucedida!');
+        console.log('Dados descriptografados:', decrypted);
+      }
 
       return decrypted;
     } catch (error) {

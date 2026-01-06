@@ -68,7 +68,7 @@ class WebSocketManager {
             await redisClient.subscribe('device_updates', (message) => {
                 try {
                     const update = JSON.parse(message);
-                    this.broadcastUpdate(update);
+                    this.broadcast(update);
                 } catch (err) {
                     logger.error('WebSocket: Erro ao parsear mensagem Redis', err);
                 }
