@@ -86,14 +86,41 @@ class RedisClient {
     }
   }
 
-  async set(key, value) {
+  async set(key, value, options = {}) {
     try {
       if (!this.client) throw new Error('Redis não conectado');
-      await this.client.set(key, value);
+      
+      if (options.EX) {
+        // Usar setEx para definir com expiração
+        await this.client.setEx(key, options.EX, value);
+      } else {
+        await this.client.set(key, value);
+      }
       return true;
     } catch (e) {
       logger.error('Redis SET falhou', { key, error: e.message });
       return false;
+    }
+  }
+
+  async del(key) {
+    try {
+      if (!this.client) throw new Error('Redis não conectado');
+      await this.client.del(key);
+      return true;
+    } catch (e) {
+      logger.error('Redis DEL falhou', { key, error: e.message });
+      return false;
+    }
+  }
+
+  async keys(pattern) {
+    try {
+      if (!this.client) throw new Error('Redis não conectado');
+      return await this.client.keys(pattern);
+    } catch (e) {
+      logger.error('Redis KEYS falhou', { pattern, error: e.message });
+      return [];
     }
   }
 }
