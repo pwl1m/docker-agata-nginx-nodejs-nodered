@@ -3,3 +3,4 @@ redis-data/**
 node-red-data/**
 *.log
 php_enterprise_docker_logica/**
+agata-engenharia/**
