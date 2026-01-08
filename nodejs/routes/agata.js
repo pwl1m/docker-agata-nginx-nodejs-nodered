@@ -18,7 +18,7 @@ function getRecentPayloads(req) {
 // POST /agata/send-command - ENFILEIRAR COMANDO NO REDIS
 router.post('/agata/send-command', async (req, res) => {
   logger.info('🟢 Recebido comando para enfileirar', { body: req.body });
-  
+
   try {
     const { serial, comando, formato, usuario_id } = req.body || {};
 
@@ -40,31 +40,8 @@ router.post('/agata/send-command', async (req, res) => {
       dadosParaCriptografar = comando;
     }
 
-    // VALIDAR TIMESTAMP (índice 27 do array "alteracao")
-    if (Array.isArray(dadosParaCriptografar) && dadosParaCriptografar.length >= 28) {
-      try {
-        const providedTs = Number(dadosParaCriptografar[27]) || 0;
-        const last = await repository.getLastTelemetry(serial);
-        const lastTsRaw = last?.timestamp_device ?? last?.timestamp ?? null;
-        const lastEpoch = lastTsRaw ? Math.floor(new Date(lastTsRaw).getTime() / 1000) : null;
-
-        if (lastEpoch && providedTs <= lastEpoch) {
-          if (process.env.AGATA_REJECT_OLD_TIMESTAMP === 'true') {
-            logger.warn('❌ Comando rejeitado: timestamp anterior ao último do device', { serial, providedTs, lastEpoch });
-            return res.status(400).json({ error: 'Timestamp do comando anterior ao último enviado pelo device' });
-          } else {
-            const newTs = lastEpoch + 1;
-            dadosParaCriptografar[27] = newTs;
-            logger.info('ℹ️ Timestamp do comando ajustado automaticamente', { serial, old: providedTs, new: newTs });
-          }
-        }
-      } catch (tsErr) {
-        logger.error('Erro ao validar timestamp do comando', { serial, error: tsErr.message });
-      }
-    }
-    
     const comandoJson = JSON.stringify(dadosParaCriptografar);
-    
+
     logger.info('🔐 Criptografando comando', {
       serial,
       formato: formato || 'object',
@@ -72,7 +49,7 @@ router.post('/agata/send-command', async (req, res) => {
       elementos: Array.isArray(dadosParaCriptografar) ? dadosParaCriptografar.length : 'N/A',
       preview: comandoJson.substring(0, 100)
     });
-    
+
     const comandoCriptografado = AgataCrypto.encrypt(serial, comandoJson);
 
     if (!comandoCriptografado) {
@@ -82,7 +59,7 @@ router.post('/agata/send-command', async (req, res) => {
     // Validar integridade (descriptografar para testar)
     const testeDecrypt = AgataCrypto.decrypt(serial, comandoCriptografado);
     const integridadeOk = testeDecrypt === comandoJson;
-    
+
     logger.info('🔓 Validação de integridade', {
       serial,
       ok: integridadeOk,
@@ -96,7 +73,7 @@ router.post('/agata/send-command', async (req, res) => {
 
     // Registrar alteração no banco (se usuario_id informado)
     // O usuario_id é opcional. Se presente, registra no banco. O formato do comando para o device é mantido conforme documentação.
-    // O usuario_id nunca vai para o device - é usado apenas para registrar no banco quem fez a alteração. 
+    // O usuario_id nunca vai para o device - é usado apenas para registrar no banco quem fez a alteração.
     // O payload para o device permanece inalterado.
 
     let alteracaoId = null;
@@ -122,8 +99,8 @@ router.post('/agata/send-command', async (req, res) => {
     };
 
     await redisClient.set(
-      `agata:cmd:${serial}`, 
-      JSON.stringify(respostaParaDevice), 
+      `agata:cmd:${serial}`,
+      JSON.stringify(respostaParaDevice),
       { EX: 3600 }
     );
 
@@ -132,15 +109,15 @@ router.post('/agata/send-command', async (req, res) => {
       repository.updateAlteracaoStatus(alteracaoId, 'enviado').catch(() => {});
     }
 
-    logger.info('✅ Comando enfileirado no Redis', { 
-      serial, 
+    logger.info('✅ Comando enfileirado no Redis', {
+      serial,
       formato: formato || 'object',
       alteracaoId,
       ttl: 3600
     });
-    
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       message: `Comando enfileirado para ${serial}`,
       alteracao_id: alteracaoId,
       formato: formato || 'object',
@@ -148,9 +125,9 @@ router.post('/agata/send-command', async (req, res) => {
     });
 
   } catch (error) {
-    logger.error('❌ Erro ao enfileirar comando', { 
+    logger.error('❌ Erro ao enfileirar comando', {
       error: error.message,
-      stack: error.stack 
+      stack: error.stack
     });
     res.status(500).json({ error: error.message });
   }
@@ -159,10 +136,10 @@ router.post('/agata/send-command', async (req, res) => {
 // GET /agata/queue/:serial - OBSERVADOR DE FILA (REDIS)
 router.get('/agata/queue/:serial', async (req, res) => {
   const { serial } = req.params;
-  
+
   try {
     const command = await redisClient.get(`agata:cmd:${serial}`);
-    
+
     logger.info(`[QUEUE_OBSERVER] Consulta Redis para Serial: ${serial}`, {
       found: !!command
     });
@@ -183,7 +160,7 @@ router.get('/agata/queue', async (req, res) => {
   try {
     const keys = await redisClient.keys('agata:cmd:*');
     const queue = {};
-    
+
     for (const key of keys) {
       const serial = key.replace('agata:cmd:', '');
       const value = await redisClient.get(key);
@@ -209,34 +186,46 @@ router.post(/^\/agata\/?$/, async (req, res) => {
   // Validação 1: Tamanho mínimo
   if (!rawBody || rawBody.length < 10) {
     logger.error('❌ Payload muito curto', { length: rawBody.length });
-    return res.status(200).json({ code: 200, config: 0, data: "" });
+    const body = JSON.stringify({ code: 200, config: 0, data: "" });
+    res.set('Content-Type', 'application/json');
+    res.set('Content-Length', String(Buffer.byteLength(body)));
+    res.set('Connection', 'close');
+    return res.status(200).send(body);
   }
 
   // Validação 2: Serial válido
   const serial = rawBody.substring(0, 6);
-  
+
   if (!/^\d{6}$/.test(serial)) {
-    logger.error('❌ Serial inválido detectado', { 
-      serial, 
+    logger.error('❌ Serial inválido detectado', {
+      serial,
       preview: rawBody.substring(0, 50),
       length: rawBody.length
     });
-    return res.status(200).json({ code: 200, config: 0, data: "" });
+    const body = JSON.stringify({ code: 200, config: 0, data: "" });
+    res.set('Content-Type', 'application/json');
+    res.set('Content-Length', String(Buffer.byteLength(body)));
+    res.set('Connection', 'close');
+    return res.status(200).send(body);
   }
 
   // Validação 3: Detectar payload duplicado (cache 30s)
   const recentPayloads = getRecentPayloads(req);
-  
+
   try {
     const payloadHash = crypto.createHash('md5').update(rawBody).digest('hex');
     const recent = recentPayloads.get(serial);
 
     if (recent && recent.hash === payloadHash && (Date.now() - recent.timestamp) < 30000) {
-      logger.warn('⚠️ Payload duplicado detectado', { 
-        serial, 
-        age: Date.now() - recent.timestamp 
+      logger.warn('⚠️ Payload duplicado detectado', {
+        serial,
+        age: Date.now() - recent.timestamp
       });
-      return res.status(200).json({ code: 200, config: 0, data: "" });
+      const body = JSON.stringify({ code: 200, config: 0, data: "" });
+      res.set('Content-Type', 'application/json');
+      res.set('Content-Length', String(Buffer.byteLength(body)));
+      res.set('Connection', 'close');
+      return res.status(200).send(body);
     }
 
     recentPayloads.set(serial, { hash: payloadHash, timestamp: Date.now() });
@@ -259,13 +248,13 @@ router.post(/^\/agata\/?$/, async (req, res) => {
     decrypted = AgataCrypto.decrypt(serial, encryptedPayload);
     payload = JSON.parse(decrypted.replace(/[\x00-\x1F\x80-\xFF]/g, ''));
 
-    logger.info('✅ Telemetria processada', { 
-      serial, 
+    logger.info('✅ Telemetria processada', {
+      serial,
       blc: payload.blc,
       eventos: payload.event?.length || 0,
       erros: payload.erros?.length || 0
     });
-    
+
     logger.logProcessedData({ serial, payload });
 
     // Publicar no Redis para WebSocket
@@ -276,7 +265,7 @@ router.post(/^\/agata\/?$/, async (req, res) => {
         timestamp: new Date().toISOString(),
         data: payload
       });
-      
+
       redisClient.publish('device_updates', message)
         .catch(err => logger.error('❌ Erro ao publicar no Redis', { error: err.message }));
     } catch (redisErr) {
@@ -285,7 +274,11 @@ router.post(/^\/agata\/?$/, async (req, res) => {
 
   } catch (err) {
     logger.error('❌ Erro ao processar telemetria', { serial, error: err.message });
-    return res.status(200).json({ code: 200, config: 0, data: "" });
+    const body = JSON.stringify({ code: 200, config: 0, data: "" });
+    res.set('Content-Type', 'application/json');
+    res.set('Content-Length', String(Buffer.byteLength(body)));
+    res.set('Connection', 'close');
+    return res.status(200).send(body);
   }
 
   // Verificar se há comando pendente no Redis
@@ -296,42 +289,35 @@ router.post(/^\/agata\/?$/, async (req, res) => {
     if (comandoPendenteRaw) {
       await redisClient.del(redisKey);
       const comandoPendente = JSON.parse(comandoPendenteRaw);
-      
-      // Enviar SOMENTE o que o device espera:
-      // - se comandoPendente.data existe, enviar essa string (provável payload base64)
-      // - se for string, enviar direto
-      let deviceBody = '';
-      if (typeof comandoPendente === 'string') deviceBody = comandoPendente;
-      else if (comandoPendente.data) deviceBody = comandoPendente.data;
-      else deviceBody = '';
+
+      const respostaCompacta = JSON.stringify(comandoPendente);
 
       logger.info('📤 Enviando comando do Redis para device', {
         serial,
-        bytes: Buffer.byteLength(deviceBody || ''),
+        tamanho: respostaCompacta.length,
         config: comandoPendente.config
       });
 
-      if (!deviceBody) {
-        // Resposta vazia (seguro para o firmware)
-        res.set('Content-Length', '0');
-        res.set('Connection', 'close');
-        return res.status(200).end();
-      }
-      const len = Buffer.byteLength(deviceBody);
-      res.type('text/plain');
-      res.set('Content-Length', String(len));
+      res.set('Content-Type', 'application/json');
+      res.set('Content-Length', String(Buffer.byteLength(respostaCompacta)));
       res.set('Connection', 'close');
-      return res.status(200).send(deviceBody);
+      return res.status(200).send(respostaCompacta);
     }
 
     logger.debug('ℹ️ Sem comando pendente', { serial });
-    // Resposta vazia — firmware espera vazio quando nada há
-    return res.status(200).end();
+    const body = JSON.stringify({ code: 200, config: 0, data: "" });
+    res.set('Content-Type', 'application/json');
+    res.set('Content-Length', String(Buffer.byteLength(body)));
+    res.set('Connection', 'close');
+    return res.status(200).send(body);
 
   } catch (redisErr) {
     logger.error('❌ Erro ao verificar comando pendente', { serial, error: redisErr.message });
-    // Em caso de erro, também responder vazio (mais seguro para o device)
-    return res.status(200).end();
+    const body = JSON.stringify({ code: 200, config: 0, data: "" });
+    res.set('Content-Type', 'application/json');
+    res.set('Content-Length', String(Buffer.byteLength(body)));
+    res.set('Connection', 'close');
+    return res.status(200).send(body);
   }
 });
 

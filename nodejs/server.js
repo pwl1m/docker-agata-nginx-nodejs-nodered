@@ -20,19 +20,17 @@ if (DEBUG_RAW_PAYLOAD) {
   if (!fs.existsSync(RAW_INCOMING_DIR)) {
     fs.mkdirSync(RAW_INCOMING_DIR, { recursive: true });
   }
-  console.log('═══════════════════════════════════════════════════════════');
-  console.log('🔍 MODO DEBUG ATIVO: Salvando payloads brutos em:', RAW_INCOMING_DIR);
-  console.log('═══════════════════════════════════════════════════════════');
+    console.log('🔍 MODO DEBUG ATIVO: Salvando payloads brutos em:', RAW_INCOMING_DIR);
 }
 
-// FUNÇÃO: Salvar payload bruto
+// FUNÇÃO: Salvar payload bruto para debug pasta dentro de logs/
 function saveRawIncoming(req, rawBody) {
   if (!DEBUG_RAW_PAYLOAD) return;
 
   try {
     const timestamp = new Date().toISOString();
     const dateStr = timestamp.split('T')[0];
-    
+
     const debugData = {
       _debug_timestamp: timestamp,
       _debug_method: req.method,
@@ -52,11 +50,11 @@ function saveRawIncoming(req, rawBody) {
     const filename = `raw-incoming-${dateStr}.log`;
     const filepath = path.join(RAW_INCOMING_DIR, filename);
     const logLine = JSON.stringify(debugData, null, 2) + '\n\n---END-OF-REQUEST---\n\n';
-    
+
     fs.appendFile(filepath, logLine, (err) => {
       if (err) console.error('❌ Erro ao gravar raw incoming (async):', err.message);
     });
-    
+
     console.log('═══════════════════════════════════════════════════════════');
     console.log(`🔍 [DEBUG RAW] ${timestamp}`);
     console.log(`   Method: ${req.method} | Path: ${req.path}`);
@@ -85,7 +83,7 @@ redisClient.connect()
     logger.error('Falha ao conectar Redis', { error: err.message });
   });
 
-// MIDDLEWARES BÁSICOS - São padrão da propria arquitetura express 
+// MIDDLEWARES BÁSICOS - São padrão da propria arquitetura express
 app.set('trust proxy', true);
 app.use(cors());
 app.use(morgan('combined'));
@@ -121,6 +119,8 @@ app.use((req, res, next) => {
       logger.error('❌ Erro ao ler corpo', { error: err.message });
       saveRawIncoming(req, `[ERROR] ${err.message}`);
       if (!res.headersSent) {
+        res.set('Content-Length', '0');
+        res.set('Connection', 'close');
         res.status(200).end();
       }
     });
@@ -143,19 +143,19 @@ app.get('/debug/raw-incoming', (req, res) => {
   if (!DEBUG_RAW_PAYLOAD) {
     return res.status(404).json({ error: 'Debug mode disabled' });
   }
-  
+
   try {
     const files = fs.readdirSync(RAW_INCOMING_DIR).filter(f => f.endsWith('.log')).sort().reverse();
-    
+
     if (files.length === 0) {
       return res.json({ message: 'Nenhum log encontrado', files: [] });
     }
-    
+
     const latestFile = files[0];
     const latestPath = path.join(RAW_INCOMING_DIR, latestFile);
     const content = fs.readFileSync(latestPath, 'utf8');
     const entries = content.split('---END-OF-REQUEST---').filter(e => e.trim());
-    
+
     res.json({
       debug_enabled: true,
       log_directory: RAW_INCOMING_DIR,
@@ -163,7 +163,7 @@ app.get('/debug/raw-incoming', (req, res) => {
       latest_file: latestFile,
       total_entries_today: entries.length,
       last_5_entries: entries.slice(-5).map(e => {
-        try { return JSON.parse(e.trim()); } 
+        try { return JSON.parse(e.trim()); }
         catch { return { raw: e.substring(0, 200) }; }
       })
     });
@@ -196,11 +196,15 @@ app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 app.use((err, req, res, next) => {
   logger.error('Erro não capturado', { err: err.message, stack: err.stack, path: req.path });
   if (!res.headersSent) {
-    res.set('Content-Length', '0');
-    res.set('Connection', 'close');
-    return res.status(200).end();
+    // Para device: apenas rota /agata ou /agata/ (telemetria) responde vazio
+    if (/^\/agata\/?$/.test(req.path) && req.method === 'POST') {
+      res.set('Content-Length', '0');
+      res.set('Connection', 'close');
+      return res.status(200).end();
+    }
+    // Para API admin (/agata/send-command, /agata/queue, etc): retorna erro JSON
+    return res.status(500).json({ error: err.message });
   }
-  logger.warn('Resposta já enviada — não enviando resposta de erro duplicada', { path: req.path });
 });
 
 // INICIAR SERVER
