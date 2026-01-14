@@ -6,6 +6,7 @@ const AgataCrypto = require('../utils/crypto');
 const logger = require('../utils/logger');
 const redisClient = require('../utils/redisClient');
 const repository = require('../database/repository');
+const agataHelpers = require('../utils/agataHelpers');
 
 
 // HELPERS
@@ -318,6 +319,103 @@ router.post(/^\/agata\/?$/, async (req, res) => {
     res.set('Content-Length', String(Buffer.byteLength(body)));
     res.set('Connection', 'close');
     return res.status(200).send(body);
+  }
+});
+
+router.post('/agata/send-command-timestamp', async (req, res) => {
+  logger.info('🔔 Recebido comando (timestamp route) para enfileirar', { body: req.body });
+
+  try {
+    const { serial, comando, formato, usuario_id } = req.body || {};
+
+    if (!serial || !/^\d{6}$/.test(serial)) {
+      return res.status(400).json({ error: 'Serial inválido' });
+    }
+    if (!comando) {
+      return res.status(400).json({ error: 'Campo comando ausente' });
+    }
+
+    // Determinar dados que vão para o device (mesma lógica do send-command)
+    let dadosParaCriptografar;
+    if (formato === 'array' && comando.alteracao) {
+      dadosParaCriptografar = comando.alteracao;
+    } else {
+      dadosParaCriptografar = comando;
+    }
+
+    // Injeta timestamp SEMPRE (s, índice 28)
+    dadosParaCriptografar = agataHelpers.injectTimestamp(dadosParaCriptografar, {
+      unit: 's',
+      index: Number(process.env.AGATA_TIMESTAMP_INDEX || 28)
+    });
+    logger.info('Timestamp injetado (send-command-timestamp)', { serial });
+
+    // Assinatura normalizada e checagem (opcional)
+    const signature = agataHelpers.normalizeForSignature(dadosParaCriptografar, { index: Number(process.env.AGATA_TIMESTAMP_INDEX || 28) });
+    const lastKey = `agata:last-alteration:${serial}`;
+    let alteracaoId = null;
+
+    try {
+      if (process.env.AGATA_ENABLE_SIGNATURE_CHECK === 'true') {
+        const last = await redisClient.get(lastKey);
+        if (last === signature) {
+          logger.info('Alteração idêntica à última registrada — pulando gravação no banco', { serial });
+        } else {
+          alteracaoId = await repository.saveAlteracaoUsuario({
+            serial,
+            usuario_id,
+            comando_enviado: dadosParaCriptografar,
+            ip_origem: req.ip || req.headers['x-real-ip'],
+            user_agent: req.headers['user-agent']
+          });
+          await redisClient.set(lastKey, signature, { EX: Number(process.env.AGATA_LAST_ALTER_TTL_SECONDS || 86400) });
+          logger.info('Alteração registrada (send-command-timestamp)', { serial, alteracaoId });
+        }
+      } else {
+        alteracaoId = await repository.saveAlteracaoUsuario({
+          serial,
+          usuario_id,
+          comando_enviado: dadosParaCriptografar,
+          ip_origem: req.ip || req.headers['x-real-ip'],
+          user_agent: req.headers['user-agent']
+        });
+        logger.info('Alteração registrada sem checagem (send-command-timestamp)', { serial, alteracaoId });
+      }
+    } catch (dbErr) {
+      logger.warn('Erro ao gravar alteração (não bloqueante)', { error: dbErr.message });
+    }
+
+    // Criptografar e publicar/enfileirar
+    const comandoCriptografado = AgataCrypto.encrypt(serial, JSON.stringify(dadosParaCriptografar));
+    if (!comandoCriptografado) {
+      return res.status(500).json({ error: 'Falha ao criptografar comando' });
+    }
+
+    // Mesma estrutura usada por /agata (garante que o device irá receber o comando)
+    const respostaParaDevice = {
+      code: 200,
+      config: 1,
+      data: comandoCriptografado
+    };
+    // TTL consistente com send-command
+    const ttl = Number(process.env.AGATA_COMMAND_TTL_SECONDS || 3600);
+    await redisClient.set(`agata:cmd:${serial}`, JSON.stringify(respostaParaDevice), { EX: ttl });
+    logger.info('✅ Comando enfileirado no Redis (key agata:cmd)', { serial, ttl });
+
+    const channel = process.env.AGATA_QUEUE_CHANNEL || 'agata:commands';
+    await redisClient.publish(channel, JSON.stringify({ serial, payload: comandoCriptografado }));
+
+    return res.json({
+      ok: true,
+      enqueued: true,
+      channel,
+      serial,
+      alteracaoId,
+      encrypted_preview: comandoCriptografado.substring(0, 40)
+    });
+  } catch (error) {
+    logger.error('Erro em send-command-timestamp', { error: error.message });
+    return res.status(500).json({ error: 'Erro interno' });
   }
 });
 
